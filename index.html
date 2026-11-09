@@ -845,6 +845,11 @@
             }
         }
 
+        // Status koneksi PeerJS: log yang jelas untuk pengujian di kedua perangkat.
+        function peerLog(role, event, detail = '') {
+            console.info(`[ALGOMATCH ${role}] ${event}`, detail);
+        }
+
         function setupHostRoom() {
             state.isHost = true;
             state.playerIndex = 0;
@@ -853,12 +858,25 @@
             document.getElementById('lobbyStep1').classList.add('hidden');
             document.getElementById('lobbyStepHost').classList.remove('hidden');
             document.getElementById('generatedRoomCode').innerText = state.roomCode;
-            state.peer = new Peer(`algomatch_room_${state.roomCode}`);
-            state.peer.on('open', () => updateLobbyPlayersUI());
-            state.peer.on('error', err => showModal('Koneksi Host Bermasalah', err.message || 'Gagal menghubungkan server PeerJS. Buat ruang baru.'));
-            state.peer.on('disconnected', () => showModal('Koneksi Terputus', 'Koneksi signaling terputus. Coba muat ulang halaman.'));
-            state.peer.on('connection', conn => {
-                // Registrasi dilakukan setelah data channel benar-benar terbuka.
+            if (state.peer && !state.peer.destroyed) state.peer.destroy();
+            const peer = new Peer(`algomatch_room_${state.roomCode}`, {debug: 2});
+            state.peer = peer;
+            peer.on('open', id => {
+                peerLog('HOST', 'Signaling siap', id);
+                updateLobbyPlayersUI();
+            });
+            peer.on('error', err => {
+                peerLog('HOST', 'Peer error', {type: err.type, message: err.message});
+                showModal('Koneksi Host Bermasalah', `${err.type || 'error'}: ${err.message || 'Server PeerJS tidak dapat diakses.'}`);
+            });
+            peer.on('disconnected', () => {
+                peerLog('HOST', 'Signaling terputus; mencoba reconnect');
+                if (!peer.destroyed && peer.disconnected) {
+                    try { peer.reconnect(); } catch (err) { peerLog('HOST', 'Reconnect gagal', err.message); }
+                }
+            });
+            peer.on('connection', conn => {
+                peerLog('HOST', 'Permintaan koneksi diterima', conn.peer);
                 conn.on('open', () => {
                     if (state.gameStarted || state.playersList.length >= state.totalPlayers) {
                         conn.send({type:'JOIN_REJECT',reason:'Ruang penuh atau permainan sudah dimulai.'});
@@ -872,6 +890,7 @@
                     conn.send({type:'JOIN_ACCEPT',playerIndex:newIndex,totalPlayers:state.totalPlayers,playersList:state.playersList});
                     broadcastMessage({type:'LOBBY_UPDATE',playersList:state.playersList});
                     updateLobbyPlayersUI();
+                    peerLog('HOST', 'Pemain bergabung', newIndex + 1);
                 });
                 conn.on('data', data => handleHostIncomingData(data, conn));
                 conn.on('close', () => {
@@ -881,11 +900,11 @@
                             c.playerIndex = i+1;
                             return {id:i+1,name:`Pemain ${i+2}`};
                         })];
-                        state.connections.forEach(c => c.send({type:'JOIN_ACCEPT',playerIndex:c.playerIndex,totalPlayers:state.totalPlayers,playersList:state.playersList}));
+                        state.connections.forEach(c => { if (c.open) c.send({type:'JOIN_ACCEPT',playerIndex:c.playerIndex,totalPlayers:state.totalPlayers,playersList:state.playersList}); });
                         updateLobbyPlayersUI();
                     }
                 });
-                conn.on('error', err => console.error('Koneksi pemain:',err));
+                conn.on('error', err => peerLog('HOST', 'Data connection error', err.message));
             });
         }
 
@@ -898,38 +917,56 @@
             btn.innerText = 'Menghubungkan...'; btn.disabled = true;
             state.isHost = false; state.roomCode = code;
             if (state.peer && !state.peer.destroyed) state.peer.destroy();
-            state.peer = new Peer();
+            const peer = new Peer({debug: 2});
+            state.peer = peer;
             let joined = false;
-            const fail = msg => {
-                if (joined) return;
+            let failed = false;
+            let conn = null;
+            const finishFailure = msg => {
+                if (joined || failed) return;
+                failed = true;
+                clearTimeout(timeout);
                 btn.disabled = false; btn.innerText = 'Masuk';
-                showModal('Koneksi Gagal',msg);
+                peerLog('PLAYER 2', 'Gagal bergabung', msg);
+                showModal('Koneksi Gagal', msg);
+                if (conn && conn.open) conn.close();
+                if (!peer.destroyed) peer.destroy();
             };
-            const timeout = setTimeout(() => fail('Host tidak merespons dalam 15 detik. Periksa kode dan jaringan kedua perangkat.'),15000);
-            state.peer.on('open', () => {
-                const conn = state.peer.connect(`algomatch_room_${code}`,{reliable:true});
+            const timeout = setTimeout(() => {
+                finishFailure('Belum berhasil terhubung dalam 25 detik. Periksa status PeerJS pada kedua perangkat melalui Console.');
+            }, 25000);
+            peer.on('open', id => {
+                peerLog('PLAYER 2', 'Signaling siap', id);
+                if (failed) return;
+                conn = peer.connect(`algomatch_room_${code}`, {reliable:true});
                 state.connections = [conn];
-                conn.on('open', () => {
-                    document.getElementById('lobbyStep1').classList.add('hidden');
-                    document.getElementById('lobbyStepWait').classList.remove('hidden');
-                    document.getElementById('waitRoomCode').innerText = code;
-                });
+                peerLog('PLAYER 2', 'Mencoba koneksi ke Host', conn.peer);
+                conn.on('open', () => peerLog('PLAYER 2', 'Data channel terbuka; menunggu JOIN_ACCEPT'));
                 conn.on('data', data => {
+                    if (failed) return;
                     if (data.type === 'JOIN_REJECT') {
-                showModal('Tidak Bisa Bergabung', data.reason);
-                return;
-            }
-            if (data.type === 'JOIN_ACCEPT') {joined=true;clearTimeout(timeout);}
-                    if (data.type === 'JOIN_REJECT') {clearTimeout(timeout);fail(data.reason);}
+                        finishFailure(data.reason || 'Host menolak koneksi.');
+                        return;
+                    }
+                    if (data.type === 'JOIN_ACCEPT') {
+                        joined = true;
+                        clearTimeout(timeout);
+                        btn.disabled = false; btn.innerText = 'Masuk';
+                        peerLog('PLAYER 2', 'Berhasil bergabung', data.playerIndex);
+                    }
                     handleClientIncomingData(data);
                 });
                 conn.on('close', () => {
-                    clearTimeout(timeout);
-                    if (!state.isGameOver) showModal('Terputus dari Host','Koneksi terputus. Muat ulang halaman untuk bergabung kembali.');
+                    if (!joined) finishFailure('Koneksi ke Host tertutup sebelum berhasil bergabung.');
+                    else if (!state.isGameOver) showModal('Terputus dari Host','Koneksi terputus. Muat ulang halaman untuk bergabung kembali.');
                 });
-                conn.on('error', err => {clearTimeout(timeout);fail(err.message || 'Gagal terhubung ke host.');});
+                conn.on('error', err => finishFailure(`Data channel: ${err.message || 'Koneksi ke Host gagal.'}`));
             });
-            state.peer.on('error', err => {clearTimeout(timeout);fail(err.message || 'Server PeerJS tidak dapat diakses.');});
+            peer.on('disconnected', () => {
+                peerLog('PLAYER 2', 'Signaling terputus');
+                if (!joined) finishFailure('Lost connection to server (signaling PeerJS). Periksa akses server PeerJS atau coba lagi nanti.');
+            });
+            peer.on('error', err => finishFailure(`PeerJS ${err.type || 'error'}: ${err.message || 'Server tidak dapat diakses.'}`));
         }
 
         function resetLobby() {
