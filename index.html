@@ -80,7 +80,7 @@
             <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
                 <div class="text-center space-y-2 mb-6">
                     <span class="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 rounded-full border border-emerald-800">
-                        <i class="fa-solid fa-globe mr-1"></i> Online PeerJS Connected
+                        <i class="fa-solid fa-globe mr-1"></i> Online WebRTC Connected
                     </span>
                     <h2 class="text-3xl sm:text-4xl font-extrabold text-white">Selamat Datang di ALGOMATCH</h2>
                     <p class="text-sm text-slate-400">Buat Ruang sebagai Host atau Gabung dengan Kode Masuk!</p>
@@ -272,7 +272,7 @@
         </div>
     </div>
 
-    <!-- JAVASCRIPT ENGINE WITH PEERJS SINKRONISASI TIGHT-BINDING -->
+    <!-- JAVASCRIPT ENGINE (DIRECT HANDSHAKE SYNC) -->
     <script>
         const ALGEBRA_SETS = [
             { id: 1, theme: 'theme-red', exp: '2(x + 3)', eq: '2x + 6', verbal: 'Dua kali suatu bilangan ditambah enam', m: 2, c: 6 },
@@ -728,7 +728,6 @@
             const originY = h / 2;
             const step = 14;
 
-            // Grid latar belakang
             ctx.strokeStyle = '#e2e8f0';
             ctx.lineWidth = 1;
             for (let x = originX % step; x <= w; x += step) {
@@ -738,25 +737,20 @@
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
             }
 
-            // Sumbu Utama X & Y
             ctx.strokeStyle = '#1e293b';
             ctx.lineWidth = 1.8;
 
-            // Sumbu X
             ctx.beginPath(); ctx.moveTo(4, originY); ctx.lineTo(w - 4, originY); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(w - 8, originY - 3); ctx.lineTo(w - 2, originY); ctx.lineTo(w - 8, originY + 3);
             ctx.fillStyle = '#1e293b'; ctx.fill();
 
-            // Sumbu Y
             ctx.beginPath(); ctx.moveTo(originX, h - 4); ctx.lineTo(originX, 4); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(originX - 3, 8); ctx.lineTo(originX, 2); ctx.lineTo(originX + 3, 8); ctx.fill();
 
-            // Text Label & Angka Sumbu
             ctx.fillStyle = '#0f172a';
             ctx.font = 'bold 9px sans-serif';
             ctx.textAlign = 'center';
 
-            // Angka Sumbu X
             [-4, -2, 2, 4].forEach(val => {
                 const px = originX + val * step;
                 if (px > 10 && px < w - 10) {
@@ -765,7 +759,6 @@
                 }
             });
 
-            // Angka Sumbu Y
             [-4, -2, 2, 4].forEach(val => {
                 const py = originY - val * step;
                 if (py > 10 && py < h - 10) {
@@ -774,11 +767,9 @@
                 }
             });
 
-            // Label X & Y
             ctx.fillText('x', w - 8, originY - 4);
             ctx.fillText('y', originX + 8, 11);
 
-            // Garis Fungsi y = mx + c
             ctx.strokeStyle = '#dc2626';
             ctx.lineWidth = 2.5;
             ctx.beginPath();
